@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Spotli CRM</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-3 -3 160 258'%3E%3Cpath fill='%2335D0A6' stroke='%2335D0A6' stroke-width='3' stroke-linejoin='round' d='M154 0 L104 0 L0 82 L0 136 L61 136 Q67 136 67 142 Q67 148 64 151 L0 202 L0 252 L50 252 L154 170 L154 116 L93 116 Q87 116 87 110 Q87 104 90 101 L154 50 Z'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<!-- ============ PIN ZÁMOK ============ -->
+<div id="lock" class="lock" hidden>
+  <svg class="lock-deco" viewBox="-3 -3 160 258" aria-hidden="true"><use href="#spotli-s" /></svg>
+  <div class="lock-card">
+    <div class="lock-brand">
+      <svg class="brand-s" viewBox="-3 -3 160 258" aria-hidden="true"><use href="#spotli-s" /></svg>
+      <span class="brand-word">Spotli</span>
+    </div>
+    <p class="lock-title">Zadaj PIN</p>
+    <div class="pin-dots" id="pinDots" aria-live="polite">
+      <span></span><span></span><span></span><span></span>
+    </div>
+    <p class="pin-error" id="pinError"></p>
+    <div class="keypad" id="keypad">
+      <button type="button" data-key="1">1</button>
+      <button type="button" data-key="2">2</button>
+      <button type="button" data-key="3">3</button>
+      <button type="button" data-key="4">4</button>
+      <button type="button" data-key="5">5</button>
+      <button type="button" data-key="6">6</button>
+      <button type="button" data-key="7">7</button>
+      <button type="button" data-key="8">8</button>
+      <button type="button" data-key="9">9</button>
+      <span></span>
+      <button type="button" data-key="0">0</button>
+      <button type="button" data-key="back" aria-label="Zmazať číslicu" class="key-back"></button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ APLIKÁCIA ============ -->
+<div class="app" id="app" hidden>
+  <aside class="sidebar">
+    <a class="brand" href="#/prehlad">
+      <svg class="brand-s" viewBox="-3 -3 160 258" aria-hidden="true"><use href="#spotli-s" /></svg>
+      <span class="brand-word">Spotli</span>
+      <span class="brand-tag">CRM</span>
+    </a>
+
+    <button class="btn btn-teal btn-quick" data-action="new-log" title="Skratka: N">
+      <span data-icon="plus"></span> Zapísať prácu
+    </button>
+
+    <nav class="nav">
+      <a href="#/prehlad" data-nav="prehlad"><span data-icon="layout-dashboard"></span>Prehľad</a>
+      <a href="#/klienti" data-nav="klienti"><span data-icon="users"></span>Klienti</a>
+      <a href="#/dennik" data-nav="dennik"><span data-icon="notebook-pen"></span>Denník</a>
+      <a href="#/planovanie" data-nav="planovanie"><span data-icon="square-kanban"></span>Plánovanie</a>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <a href="#/nastavenia" data-nav="nastavenia"><span data-icon="settings"></span>Nastavenia</a>
+      <button class="nav-like" data-action="lock"><span data-icon="lock"></span>Zamknúť</button>
+      <button class="sync" id="syncStatus" data-action="sync-now" title="Synchronizovať teraz">
+        <span class="sync-dot" id="syncDot"></span>
+        <span class="sync-text" id="syncText">Len v tomto prehliadači</span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="content" id="view" tabindex="-1"></main>
+</div>
+
+<div id="modalRoot" class="modal-overlay" hidden>
+  <div class="modal" id="modalBox" role="dialog" aria-modal="true"></div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<!-- sem sa vkladá report pri tlači -->
+<div id="printArea"></div>
+
+<!-- symbol Spotli S (vytrasovaný z loga) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="spotli-s" viewBox="-3 -3 160 258">
+    <path fill="currentColor" stroke="currentColor" stroke-width="3" stroke-linejoin="round"
+      d="M154 0 L104 0 L0 82 L0 136 L61 136 Q67 136 67 142 Q67 148 64 151 L0 202 L0 252 L50 252 L154 170 L154 116 L93 116 Q87 116 87 110 Q87 104 90 101 L154 50 Z" />
+  </symbol>
+</svg>
+
+<script src="js/icons.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
