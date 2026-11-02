@@ -1,8 +1,25 @@
-# Spotli CRM
+# Spotli App
 
-Jednoduché CRM pre freelance prácu: lokálne SEO, Google Business Profil, LinkedIn, správa webov aj tvorba web aplikácií. Beží celé v prehliadači, bez servera, bez databázy a bez inštalácie.
+Jedna appka pre freelance prácu: **CRM**, **faktúry** a **cenové ponuky**. Beží celé v prehliadači, bez servera, bez databázy a bez inštalácie. Po zadaní PIN-u si na rozcestníku vyberieš, čo budeš robiť.
 
 ## Čo appka vie
+
+### Faktúry
+- Číslovanie `M` + rok + 4 číslice (napr. `M20260053`), variabilný symbol sa dopĺňa sám. Číslo, od ktorého sa začína, a predponu nastavíš v **Nastavenia → Faktúry a ponuky**. V novom roku sa číslovanie začína od 1.
+- **QR kód na platbu** (Pay by Square) z IBAN-u, sumy a variabilného symbolu, priamo na faktúre.
+- **PDF** jedným klikom (*Uložiť a stiahnuť PDF*) alebo tlač. Súbor sa volá `Faktura-M20260053.pdf`.
+- Faktúra sa po uložení **zamkne**, aby sa omylom nezmenila. Na úpravu klikni *Odomknúť*. Zmazať sa dá len posledná faktúra v rade, aby v číslovaní nevznikla diera.
+- Prehľad: fakturované, uhradené, čaká na úhradu, po splatnosti a graf po mesiacoch.
+- **Faktúra z CRM**: pri klientovi tlačidlo *Vystaviť faktúru* predvyplní počet hodín a ceny z denníka (pri práci za dielo 1 ks × cena). **Popis položky si dopíšeš sám.** Mesiac sa v CRM označí ako vyfakturovaný a keď faktúru označíš ako uhradenú, vidíš to aj v CRM.
+
+### Cenové ponuky
+- Číslovanie `CP` + rok + 4 číslice, platnosť ponuky, stavy *Rozpracovaná / Odoslaná / Prijatá / Zamietnutá*.
+- Z prijatej ponuky vznikne jedným klikom **zákazka v CRM** (cena aj názov sa prenesú) alebo **faktúra**.
+
+### Údaje dodávateľa
+Tvoje meno, adresa, IČO, DIČ, IBAN a podpis sa vyplnia **raz** v *Nastavenia → Faktúry a ponuky* (alebo sa načítajú zo súboru). Ukladajú sa len do súkromného repa s dátami, **nie do kódu appky**, takže vo verejnom repe nie sú.
+
+### CRM
 
 - **Prehľad**: zárobok za mesiac, porovnanie s minulým mesiacom, graf za 12 mesiacov, hodiny, priemerná hodinovka, koľko ešte nie je vyfakturované, rozpis podľa klientov a služieb, najbližšie úlohy.
 - **Klienti**: každý klient má kartu so službami a cenami, prácou za mesiac, faktúrou a zárobkom od začiatku spolupráce.
@@ -10,6 +27,7 @@ Jednoduché CRM pre freelance prácu: lokálne SEO, Google Business Profil, Link
 - **Report pre klienta**: mesačný report s logom Spotli. Dá sa vytlačiť, uložiť ako PDF alebo skopírovať ako text do e-mailu. Hodiny aj sumy sa dajú skryť.
 - **Plánovanie**: kanban (Naplánované → Rozbehnuté → Hotové) s termínmi a upozornením na úlohy po termíne.
 - **PIN zámok**: appka sa zamkne pri novom otvorení a po 30 minútach nečinnosti.
+- **Rozcestník**: po PIN-e vyberieš CRM, Faktúry alebo Cenové ponuky. Logo vľavo hore ťa tam kedykoľvek vráti.
 
 ### Ako sa počíta zárobok
 
@@ -47,7 +65,7 @@ Potrebuješ **dva repozitáre**: verejný pre appku a súkromný pre dáta.
 
 ### 4. Prepojenie
 
-V appke choď do **Nastavenia**, vyplň token, svoj GitHub nick a názov repa (`spotli-crm-data`) a klikni **Uložiť a pripojiť**.
+V appke choď do **Nastavenia → Pripojenie a zabezpečenie**, vyplň token, svoj GitHub nick a názov repa (`spotli-crm-data`) a klikni **Uložiť a pripojiť**.
 
 Odteraz sa každá zmena do pár sekúnd uloží do súkromného repa. Stav vidíš vľavo dole:
 
@@ -61,23 +79,23 @@ Na inom počítači stačí otvoriť adresu appky, zadať PIN a v Nastaveniach v
 
 - **Dáta** sú v súkromnom repe. K nim sa dostane len ten, kto má tvoj GitHub účet alebo token.
 - **Token** sa ukladá len v prehliadači, v ktorom ho zadáš, a posiela sa výhradne na `api.github.com`.
-- **PIN** chráni appku pred náhodným pohľadom (napr. keď necháš otvorený notebook). V kóde nie je, je tam len jeho odtlačok. Zmeniť ho môžeš v **Nastavenia → PIN** (platí pre daný prehliadač). PIN nie je šifrovanie: kto má prístup k tvojmu počítaču a vývojárskym nástrojom prehliadača, dostane sa k dátam aj bez neho.
+- **PIN** chráni appku pred náhodným pohľadom (napr. keď necháš otvorený notebook). V kóde nie je, je tam len jeho odtlačok. Zmeniť ho môžeš v **Nastavenia → Pripojenie a zabezpečenie → PIN** (platí pre daný prehliadač). PIN nie je šifrovanie: kto má prístup k tvojmu počítaču a vývojárskym nástrojom prehliadača, dostane sa k dátam aj bez neho.
 - **Neodoslané zmeny sa nestratia.** Keď vypadne internet alebo vyprší token, zmeny ostanú v prehliadači a odošlú sa neskôr. Ak sa dáta na GitHube medzitým zmenili na inom počítači, appka sa opýta, ktorú verziu ponechať, a druhú ti stiahne ako záložný súbor.
 
 ## Každodenné používanie
 
 - **Zapísať prácu**: zelené tlačidlo vľavo hore alebo klávesa **N**. Appka si pamätá posledného klienta a službu.
-- **Koniec mesiaca**: Prehľad → tabuľka *Klienti v mesiaci* → **Report** → *Vytlačiť / PDF* (v tlači zvoľ *Uložiť ako PDF*) → po odoslaní faktúry klikni **Nevyfakturované**, čím sa označí ako vyfakturované.
+- **Koniec mesiaca**: Prehľad → tabuľka *Klienti v mesiaci* → **Faktúra** (doplníš popis, uložíš, stiahneš PDF). Ak chceš klientovi poslať aj report, je tam tlačidlo **Report**.
 - **Zmazal si niečo omylom?** Hneď po zmazaní sa ukáže tlačidlo **Späť**.
 - **Klient skončil?** Daj ho do archívu. Zmizne zo zoznamov, ale jeho zárobky ostanú v prehľadoch.
 
 ## Záloha
 
-V **Nastavenia → Záloha** si môžeš kedykoľvek stiahnuť všetky dáta ako JSON alebo ich zo zálohy obnoviť. Celá história zmien je navyše v súkromnom repe (každé uloženie = commit).
+V **Nastavenia → Pripojenie a zabezpečenie → Záloha** si môžeš kedykoľvek stiahnuť všetky dáta ako JSON alebo ich zo zálohy obnoviť. Celá história zmien je navyše v súkromnom repe (každé uloženie = commit).
 
 ## Ak si používal prvú verziu
 
-Dáta z prvej verzie sa pri otvorení automaticky prevedú. Ak si v prvej verzii nastavil ukladanie do repa s appkou, **zmaž z neho súbor `data/data.json`**, lebo je verejný, a nastav súkromné repo podľa návodu vyššie.
+Dáta z prvej aj druhej verzie sa pri otvorení automaticky prevedú, nič sa nestratí. Ak si v prvej verzii nastavil ukladanie do repa s appkou, **zmaž z neho súbor `data/data.json`**, lebo je verejný, a nastav súkromné repo podľa návodu vyššie.
 
 ## Technické poznámky
 
@@ -89,8 +107,12 @@ Dáta z prvej verzie sa pri otvorení automaticky prevedú. Ak si v prvej verzii
 ```
 index.html        štruktúra appky a PIN zámok
 css/style.css     vzhľad (farby a fonty sú na začiatku v :root)
-js/app.js         logika: dáta, výpočty, obrazovky, report, sync, PIN
+js/app.js         jadro: dáta, CRM, rozcestník, report, sync, PIN
+js/invoices.js    faktúry, cenové ponuky, editor, PDF, tlač, údaje dodávateľa
+js/payqr.js       QR kód Pay by Square (QR knižnica + kompresia)
+js/logo.js        logo Spotli pre doklady
 js/icons.js       ikony
+js/vendor/        html2canvas a jsPDF (na PDF, načítajú sa až pri prvom exporte)
 fonts/            Inter a Sora (woff2) + licencie
 .nojekyll         aby GitHub Pages nič neupravoval
 ```

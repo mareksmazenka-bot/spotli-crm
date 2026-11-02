@@ -1,7 +1,10 @@
 /* =============================================================
-   Spotli CRM v2
-   Jednoduché CRM pre freelance prácu: klienti, služby, denník
-   práce, mesačné prehľady, reporty pre klientov a plánovanie.
+   Spotli App v3
+   Tri časti v jednej appke: CRM (klienti, denník práce, prehľady,
+   plánovanie), Faktúry a Cenové ponuky.
+
+   Tento súbor: jadro (dáta, synchronizácia, PIN, smerovanie) a CRM.
+   Faktúry a ponuky: js/invoices.js.
 
    Dáta: localStorage v prehliadači + voliteľne súkromné GitHub repo.
    ============================================================= */
@@ -208,16 +211,36 @@ function downloadJson(obj, name) {
 
 /* ===================== DÁTA ===================== */
 
+/* Údaje dodávateľa (teba) a predvolené hodnoty dokladov. Nie sú v kóde,
+   ukladajú sa spolu s ostatnými dátami do súkromného repa. */
+function emptyProfile() {
+  return {
+    name: "", street: "", zip: "", city: "", country: "Slovensko",
+    ico: "", dic: "", icdph: "", vatNote: "Neplatiteľ DPH",
+    issuedBy: "", bank: "", iban: "", swift: "",
+    email: "", phone: "", web: "",
+    dueDays: 14, paymentMethod: "Prevodom", defaultUnit: "hod.", defaultNote: "",
+    invoicePrefix: "M", invoiceStart: 53, quotePrefix: "CP", quoteStart: 1,
+    numberingYear: new Date().getFullYear(),
+    quoteValidDays: 30, quoteNote: "Cenová ponuka nie je daňový doklad.", signature: ""
+  };
+}
+
 function emptyData() {
-  return { version: 2, clients: [], services: [], logs: [], tasks: [], billed: {}, updatedAt: null };
+  return {
+    version: 3, clients: [], services: [], logs: [], tasks: [], billed: {},
+    invoices: [], quotes: [], profile: emptyProfile(), updatedAt: null
+  };
 }
 
 function normalizeData(raw) {
   if (!raw || typeof raw !== "object") return emptyData();
-  if (raw.version === 2) {
+  if (raw.version >= 2) {
     const d = Object.assign(emptyData(), raw);
-    ["clients", "services", "logs", "tasks"].forEach(k => { if (!Array.isArray(d[k])) d[k] = []; });
+    ["clients", "services", "logs", "tasks", "invoices", "quotes"].forEach(k => { if (!Array.isArray(d[k])) d[k] = []; });
     if (!d.billed || typeof d.billed !== "object" || Array.isArray(d.billed)) d.billed = {};
+    d.profile = Object.assign(emptyProfile(), (raw.profile && typeof raw.profile === "object") ? raw.profile : {});
+    d.version = 3;
     return d;
   }
   return migrateV1(raw);
@@ -256,10 +279,11 @@ function migrateV1(v1) {
 }
 
 function isEmptyData(d) {
-  return !d.clients.length && !d.services.length && !d.logs.length && !d.tasks.length;
+  return !d.clients.length && !d.services.length && !d.logs.length && !d.tasks.length &&
+    !d.invoices.length && !d.quotes.length && !(d.profile && (d.profile.name || d.profile.iban));
 }
 function contentKey(d) {
-  return JSON.stringify([d.clients, d.services, d.logs, d.tasks, d.billed]);
+  return JSON.stringify([d.clients, d.services, d.logs, d.tasks, d.billed, d.invoices, d.quotes, d.profile]);
 }
 
 let data = emptyData();
@@ -384,30 +408,144 @@ const billedOn = (clientId, month) => data.billed[billedKey(clientId, month)] ||
 
 /* ===================== UI: STAV, SMEROVANIE, VYKRESLENIE ===================== */
 
-const ui = { route: "prehlad", param: null, month: curMonth(), logClient: "", showArchived: false };
+const ui = {
+  route: "start", param: null, module: "crm",
+  month: curMonth(), logClient: "", showArchived: false,
+  year: new Date().getFullYear(), invStatus: "all", quoteStatus: "all",
+  settingsTab: "doklady", editing: null
+};
 let lastRendered = "";
 let locked = true;
+
+/* ktorá časť appky patrí ku ktorej adrese */
+const ROUTE_MODULE = {
+  start: "home",
+  prehlad: "crm", klienti: "crm", klient: "crm", dennik: "crm", planovanie: "crm",
+  faktury: "faktury", faktura: "faktury",
+  ponuky: "ponuky", ponuka: "ponuky",
+  nastavenia: null
+};
 
 function parseHash() {
   const h = location.hash.replace(/^#\/?/, "");
   const parts = h.split("/");
-  return { route: parts[0] || "prehlad", param: parts[1] ? decodeURIComponent(parts[1]) : null };
+  return { route: parts[0] || "start", param: parts[1] ? decodeURIComponent(parts[1]) : null };
 }
 function go(path) { location.hash = "#/" + path; }
 
-function render() {
-  if (locked) return;
-  const views = {
+function currentViews() {
+  return {
+    start: viewHome,
     prehlad: viewDashboard, klienti: viewClients, klient: viewClient,
-    dennik: viewLogs, planovanie: viewPlanning, nastavenia: viewSettings
+    dennik: viewLogs, planovanie: viewPlanning,
+    faktury: viewInvoices, faktura: viewDocEditor,
+    ponuky: viewQuotes, ponuka: viewDocEditor,
+    nastavenia: viewSettings
   };
-  const fn = views[ui.route] || viewDashboard;
-  const view = $("#view");
-  view.innerHTML = `<div class="page">${fn()}</div>`;
-  const navKey = ui.route === "klient" ? "klienti" : (views[ui.route] ? ui.route : "prehlad");
-  $$("[data-nav]").forEach(a => a.classList.toggle("active", a.dataset.nav === navKey));
-  const key = ui.route + "/" + (ui.param || "");
+}
+
+function render(force) {
+  if (locked) return;
+  const views = currentViews();
+  const route = views[ui.route] ? ui.route : "start";
+  const mod = ROUTE_MODULE[route];
+  if (mod && mod !== "home") ui.module = mod;
+  const isEditor = route === "faktura" || route === "ponuka";
+  const key = route + "/" + (ui.param || "");
+
+  $("#app").classList.toggle("home", route === "start");
+  renderSidebar(route);
+
+  // rozpísaný doklad sa pri synchronizácii na pozadí nesmie prekresliť pod rukami
+  const edRoot = $("#edRoot");
+  if (isEditor && !force && edRoot && edRoot.dataset.key === key && ui.editing) return;
+  if (!isEditor) ui.editing = null;
+
+  $("#view").innerHTML = `<div class="page ${isEditor ? "page-wide" : ""}">${views[route]()}</div>`;
   if (key !== lastRendered) { window.scrollTo(0, 0); lastRendered = key; }
+  if (isEditor && typeof afterEditorRender === "function") afterEditorRender();
+  if (route === "start") updateSyncBadge();
+}
+
+/* bočný panel: tri časti appky, CRM sa rozbalí na svoje stránky */
+function renderSidebar(route) {
+  const m = route === "start" ? null : (ROUTE_MODULE[route] || ui.module);
+  const crmPages = [
+    ["prehlad", "Prehľad", "layout-dashboard"], ["klienti", "Klienti", "users"],
+    ["dennik", "Denník", "notebook-pen"], ["planovanie", "Plánovanie", "square-kanban"]
+  ];
+  const activeCrm = route === "klient" ? "klienti" : route;
+  const nav = `
+    <a class="nav-mod ${m === "crm" ? "active" : ""}" href="#/prehlad">${icon("briefcase-business")}CRM</a>
+    ${m === "crm" ? `<div class="nav-sub">${crmPages.map(([r, label, ic]) =>
+      `<a href="#/${r}" class="${activeCrm === r ? "active" : ""}">${icon(ic, 16)}${label}</a>`).join("")}</div>` : ""}
+    <a class="nav-mod ${m === "faktury" ? "active" : ""}" href="#/faktury">${icon("receipt")}Faktúry</a>
+    <a class="nav-mod ${m === "ponuky" ? "active" : ""}" href="#/ponuky">${icon("tag")}Cenové ponuky</a>`;
+  $("#sideNav").innerHTML = nav;
+
+  const quick = { crm: ["Zapísať prácu", "plus"], faktury: ["Nová faktúra", "plus"], ponuky: ["Nová ponuka", "plus"] }[m || ui.module];
+  $("#quickBtn").innerHTML = `${icon(quick[1])} ${quick[0]}${m === "crm" || (!m && ui.module === "crm") ? `<span class="kbd">N</span>` : ""}`;
+  $("#navSettings").classList.toggle("active", route === "nastavenia");
+}
+
+/* ---------- ROZCESTNÍK ---------- */
+
+function viewHome() {
+  const cur = curMonth();
+  const sum = monthSummary(cur);
+  const overdueTasks = data.tasks.filter(t => t.status !== "done" && t.dueDate && t.dueDate < todayStr()).length;
+  const st = typeof invoiceTotals === "function" ? invoiceTotals() : { open: 0, openCount: 0, lateCount: 0 };
+  const qs = typeof quoteTotals === "function" ? quoteTotals() : { sent: 0, sentSum: 0, draft: 0 };
+  const profileMissing = !(data.profile.name && data.profile.iban);
+
+  const plural = (n, one, few, many) => n === 1 ? one : (n >= 2 && n <= 4 ? few : many);
+
+  const card = (href, iconName, title, desc, statBig, statSmall, foot) => `
+    <div class="mod-card">
+      <a class="mod-main" href="${href}">
+        <span class="mod-ico">${icon(iconName, 26)}</span>
+        <h2>${title}</h2>
+        <p>${desc}</p>
+        <div class="mod-stat"><b>${statBig}</b><span>${statSmall}</span></div>
+      </a>
+      <div class="mod-foot">${foot}</div>
+    </div>`;
+
+  return `
+  <div class="home-wrap">
+    <header class="home-head">
+      <div class="home-brand">
+        <svg class="brand-s" viewBox="-3 -3 160 258" aria-hidden="true"><use href="#spotli-s" /></svg>
+        <span class="brand-word">Spotli</span><span class="brand-tag">App</span>
+      </div>
+      <div class="home-tools">
+        <button class="sync home-sync js-sync-btn" data-action="sync-now" title="Synchronizovať teraz">
+          <span class="sync-dot js-sync-dot"></span><span class="sync-text js-sync-text"></span></button>
+        <a class="btn btn-ghost btn-sm" href="#/nastavenia">${icon("settings")} Nastavenia</a>
+        <button class="btn btn-ghost btn-sm" data-action="lock">${icon("lock")} Zamknúť</button>
+      </div>
+    </header>
+
+    <h1 class="home-title">Čo budeš robiť?</h1>
+    <div class="mod-grid">
+      ${card("#/prehlad", "briefcase-business", "CRM",
+        "Klienti, denník práce, mesačné prehľady a plánovanie.",
+        fmtMoney(sum.amount),
+        `zarobené v mesiaci ${MONTHS[monthIdx(cur)].toLowerCase()} · ${fmtHours(sum.hours)}${overdueTasks ? ` · ${overdueTasks} ${plural(overdueTasks, "úloha", "úlohy", "úloh")} po termíne` : ""}`,
+        `<button class="btn btn-teal btn-sm" data-action="new-log">${icon("plus")} Zapísať prácu</button>`)}
+      ${card("#/faktury", "receipt", "Faktúry",
+        "Vystavovanie faktúr s QR kódom na platbu a prehľad úhrad.",
+        fmtMoney(st.open),
+        st.openCount ? `čaká na úhradu · ${st.openCount} ${plural(st.openCount, "faktúra", "faktúry", "faktúr")}${st.lateCount ? ` · ${st.lateCount} po splatnosti` : ""}` : "všetko uhradené",
+        `<button class="btn btn-teal btn-sm" data-action="new-invoice">${icon("plus")} Nová faktúra</button>`)}
+      ${card("#/ponuky", "tag", "Cenové ponuky",
+        "Ponuky pre klientov so stavmi a prechodom na zákazku alebo faktúru.",
+        String(qs.sent),
+        qs.sent ? `${plural(qs.sent, "ponuka čaká", "ponuky čakajú", "ponúk čaká")} na odpoveď · ${fmtMoney(qs.sentSum)}` : "žiadna ponuka nečaká na odpoveď",
+        `<button class="btn btn-teal btn-sm" data-action="new-quote">${icon("plus")} Nová ponuka</button>`)}
+    </div>
+    ${profileMissing ? `<div class="notice info home-note">${icon("triangle-alert")}<span>Na faktúry a ponuky ešte chýbajú tvoje údaje (meno, IBAN). <a href="#/nastavenia">Doplň ich v Nastaveniach</a>, stačí raz.</span></div>` : ""}
+  </div>`;
 }
 
 function hydrateIcons(root) {
@@ -425,12 +563,28 @@ function monthSwitch(month, prevAct, nextAct, todayAct) {
 }
 const globalMonthSwitch = () => monthSwitch(ui.month, "month-prev", "month-next", "month-today");
 
+/* faktúra vystavená z CRM pre klienta a mesiac (ak existuje) */
+const invoiceOfMonth = (clientId, month) =>
+  data.invoices.find(i => i.crm && i.crm.clientId === clientId && i.crm.month === month) || null;
+
 function billedButton(clientId, month, amount) {
+  const inv = invoiceOfMonth(clientId, month);
+  if (inv) {
+    const st = invoiceState(inv);
+    const label = st === "paid" ? "uhradená" : st === "late" ? "po splatnosti" : "čaká na úhradu";
+    return `<a class="billed-btn on ${st === "late" ? "late" : ""}" href="#/faktura/${encodeURIComponent(inv.id)}" title="Otvoriť faktúru">
+      ${icon(st === "paid" ? "circle-check-big" : (st === "late" ? "triangle-alert" : "receipt"))} ${esc(inv.number)} · ${label}</a>`;
+  }
   const on = billedOn(clientId, month);
   if (!on && !amount) return `<span class="muted">—</span>`;
   return `<button type="button" class="billed-btn ${on ? "on" : ""}" data-action="toggle-billed" data-client="${esc(clientId)}" data-month="${month}"
-    title="${on ? "Vyfakturované " + fmtDate(on) + " – kliknutím zrušíš" : "Označiť ako vyfakturované"}">
+    title="${on ? "Vyfakturované " + fmtDate(on) + " – kliknutím zrušíš" : "Označiť ako vyfakturované (bez faktúry v appke)"}">
     ${icon(on ? "circle-check-big" : "receipt")} ${on ? "Vyfakturované" : "Nevyfakturované"}</button>`;
+}
+
+/* tlačidlo „Vystaviť faktúru“ ponúkame len tam, kde je čo fakturovať a ešte sa nefakturovalo */
+function canInvoiceMonth(clientId, month, amount) {
+  return amount > 0 && !invoiceOfMonth(clientId, month) && !billedOn(clientId, month);
 }
 
 function dueBadge(t) {
@@ -509,7 +663,7 @@ function viewDashboard() {
       <td class="r ${v.hours ? "" : "muted"}">${v.hours ? fmtHours(v.hours) : "—"}</td>
       <td class="r ${v.amount ? "" : "muted"}"><b>${v.amount ? fmtMoney(v.amount) : "—"}</b></td>
       <td>${billedButton(c.id, m, v.amount)}</td>
-      <td class="actions">${(v.hours || v.amount) ? `<button type="button" class="btn btn-ghost btn-sm" data-action="open-report" data-client="${esc(c.id)}">${icon("file-text")} Report</button>` : ""}</td>
+      <td class="actions">${canInvoiceMonth(c.id, m, v.amount) ? `<button type="button" class="btn btn-teal btn-sm" data-action="invoice-from-crm" data-client="${esc(c.id)}" data-month="${m}">${icon("receipt")} Faktúra</button> ` : ""}${(v.hours || v.amount) ? `<button type="button" class="btn btn-ghost btn-sm" data-action="open-report" data-client="${esc(c.id)}">${icon("file-text")} Report</button>` : ""}</td>
     </tr>`).join("");
 
   // podľa typu služby
@@ -721,9 +875,16 @@ function viewClient() {
   <div class="tiles four">
     <div class="tile"><div class="tile-label">${icon("clock")}Odpracované</div><div class="tile-value">${fmtHours(cm.hours)}</div><div class="tile-note">${cm.logs.length} ${cm.logs.length === 1 ? "záznam" : (cm.logs.length >= 2 && cm.logs.length <= 4 ? "záznamy" : "záznamov")}</div></div>
     <div class="tile"><div class="tile-label">${icon("receipt")}Zarobené</div><div class="tile-value">${fmtMoney(cm.amount)}</div><div class="tile-note">${monthLabel(m)}</div></div>
-    <div class="tile"><div class="tile-label">${icon(on ? "circle-check-big" : "receipt")}Faktúra</div>
-      <div style="margin-top:8px">${cm.amount > 0 || on ? billedButton(c.id, m, cm.amount) : `<span class="tile-note">Tento mesiac nie je čo fakturovať</span>`}</div>
-      ${cm.amount > 0 || on ? `<div class="tile-note" style="margin-top:6px">${on ? "dňa " + fmtDate(on) : "klikni po odoslaní faktúry"}</div>` : ""}</div>
+    <div class="tile"><div class="tile-label">${icon(on || invoiceOfMonth(c.id, m) ? "circle-check-big" : "receipt")}Faktúra</div>
+      ${invoiceOfMonth(c.id, m)
+        ? `<div style="margin-top:8px">${billedButton(c.id, m, cm.amount)}</div>
+           <div class="tile-note" style="margin-top:6px">vystavená ${fmtDate(invoiceOfMonth(c.id, m).issueDate)}</div>`
+        : on
+          ? `<div style="margin-top:8px">${billedButton(c.id, m, cm.amount)}</div><div class="tile-note" style="margin-top:6px">dňa ${fmtDate(on)}</div>`
+          : cm.amount > 0
+            ? `<div style="margin-top:8px"><button type="button" class="btn btn-teal btn-sm" data-action="invoice-from-crm" data-client="${esc(c.id)}" data-month="${m}">${icon("receipt")} Vystaviť faktúru</button></div>
+               <div class="tile-note" style="margin-top:6px"><button type="button" class="link-btn" data-action="toggle-billed" data-client="${esc(c.id)}" data-month="${m}">označiť ako vyfakturované bez faktúry</button></div>`
+            : `<div style="margin-top:8px"><span class="tile-note">Tento mesiac nie je čo fakturovať</span></div>`}</div>
     <div class="tile"><div class="tile-label">${icon("calendar")}Od začiatku spolupráce</div><div class="tile-value">${fmtMoney(all.amount)}</div><div class="tile-note">${fmtHours(all.hours)}</div></div>
   </div>
 
@@ -848,9 +1009,20 @@ function viewPlanning() {
 /* ---------- NASTAVENIA ---------- */
 
 function viewSettings() {
+  const tab = ui.settingsTab === "system" ? "system" : "doklady";
   return `
-  <div class="page-head"><div><h1>Nastavenia</h1></div></div>
+  <div class="page-head">
+    <div><h1>Nastavenia</h1></div>
+    <div class="seg-ctl" role="tablist">
+      <button type="button" role="tab" data-action="settings-tab" data-tab="doklady" aria-pressed="${tab === "doklady"}">Faktúry a ponuky</button>
+      <button type="button" role="tab" data-action="settings-tab" data-tab="system" aria-pressed="${tab === "system"}">Pripojenie a zabezpečenie</button>
+    </div>
+  </div>
+  ${tab === "doklady" ? viewDocSettings() : settingsSystemHtml()}`;
+}
 
+function settingsSystemHtml() {
+  return `
   <div class="card">
     <div class="card-head"><span class="card-title">Ukladanie na GitHub</span></div>
     <p class="hint">Dáta sa ukladajú do <b>samostatného súkromného repa</b> (napr. <code>spotli-crm-data</code>), nie do repa s appkou, ktoré je verejné kvôli GitHub Pages. Appka do verejného repa dáta nikdy neuloží. Token sa ukladá len v tomto prehliadači.</p>
@@ -1015,6 +1187,36 @@ function readPricing(form, prefix) {
 
 /* ---------- klient ---------- */
 
+const BILLING_FIELDS = ["ico", "dic", "icdph", "street", "zip", "city", "country"];
+
+/* fakturačné údaje klienta: jeden zoznam klientov pre CRM, faktúry aj ponuky */
+function billingFieldsHtml(c, open) {
+  const has = BILLING_FIELDS.some(k => c[k] && k !== "country");
+  return `
+    <details class="more" ${open || has ? "open" : ""}>
+      <summary>Fakturačné údaje (na faktúry a ponuky)</summary>
+      <div class="form" style="margin-top:12px">
+        <label class="field"><span>Ulica a číslo</span><input type="text" name="street" value="${esc(c.street || "")}" /></label>
+        <div class="row2">
+          <label class="field"><span>PSČ</span><input type="text" name="zip" value="${esc(c.zip || "")}" /></label>
+          <label class="field"><span>Mesto</span><input type="text" name="city" value="${esc(c.city || "")}" /></label>
+        </div>
+        <label class="field"><span>Štát</span><input type="text" name="country" value="${esc(c.country || "Slovensko")}" /></label>
+        <div class="row3">
+          <label class="field"><span>IČO</span><input type="text" name="ico" inputmode="numeric" value="${esc(c.ico || "")}" /></label>
+          <label class="field"><span>DIČ</span><input type="text" name="dic" inputmode="numeric" value="${esc(c.dic || "")}" /></label>
+          <label class="field"><span>IČ DPH</span><input type="text" name="icdph" value="${esc(c.icdph || "")}" /></label>
+        </div>
+      </div>
+    </details>`;
+}
+function readBilling(form) {
+  const out = {};
+  BILLING_FIELDS.forEach(k => { out[k] = (form.elements[k] ? form.elements[k].value : "").trim(); });
+  if (!out.country) out.country = "Slovensko";
+  return out;
+}
+
 function openClientModal(existing) {
   const c = existing || { name: "", contact: "", note: "" };
   openModal({
@@ -1023,6 +1225,7 @@ function openClientModal(existing) {
       <label class="field"><span>Názov klienta / firmy</span><input type="text" name="name" value="${esc(c.name)}" placeholder="napr. Kaviareň Milka s.r.o." autofocus /></label>
       <label class="field"><span>Kontakt</span><input type="text" name="contact" value="${esc(c.contact)}" placeholder="e-mail alebo telefón" /></label>
       <label class="field"><span>Poznámka</span><input type="text" name="note" value="${esc(c.note)}" placeholder="nepovinné" /></label>
+      ${billingFieldsHtml(c, false)}
       ${existing ? "" : `
         <div class="subhead">Služba, ktorú preňho robíš</div>
         <label class="field"><span>Typ služby</span><select name="type">${serviceTypeOptions("lokalne-seo")}</select></label>
@@ -1036,14 +1239,14 @@ function openClientModal(existing) {
       const contact = form.elements.contact.value.trim();
       const note = form.elements.note.value.trim();
       if (existing) {
-        Object.assign(existing, { name, contact, note });
+        Object.assign(existing, { name, contact, note }, readBilling(form));
         closeModal();
         commit("Klient uložený");
         return;
       }
       const p = readPricing(form, "");
       if (p.error) return fieldError(form, p.error);
-      const client = { id: uid(), name, contact, note, archived: false, createdAt: todayStr() };
+      const client = Object.assign({ id: uid(), name, contact, note, archived: false, createdAt: todayStr() }, readBilling(form));
       data.clients.push(client);
       data.services.push({ id: uid(), clientId: client.id, type: form.elements.type.value, pricing: p.pricing, rate: p.rate, price: p.price, status: "aktivna", doneDate: null, note: "" });
       closeModal();
@@ -1246,7 +1449,7 @@ function moveTask(id, to) {
 /* ---------- konflikt pri synchronizácii ---------- */
 
 function conflictDialog(remote) {
-  const desc = d => `${d.clients.length} klientov, ${d.logs.length} záznamov, ${d.tasks.length} úloh` +
+  const desc = d => `${d.clients.length} klientov, ${d.logs.length} záznamov, ${d.tasks.length} úloh, ${d.invoices.length} faktúr, ${d.quotes.length} ponúk` +
     (d.updatedAt ? ` · posledná zmena ${fmtDate(d.updatedAt.slice(0, 10))} ${d.updatedAt.slice(11, 16)} UTC` : "");
   return new Promise(resolve => {
     let done = false;
@@ -1389,7 +1592,11 @@ function openReport(clientId, startMonth) {
   const draw = () => {
     $("#repMonth").innerHTML = monthSwitch(m, "rep-prev", "rep-next", null);
     const v = clientMonth(c.id, m);
-    $("#repBilled").innerHTML = (v.amount > 0 || billedOn(c.id, m)) ? billedButton(c.id, m, v.amount) : `<span class="tile-note">Nie je čo fakturovať</span>`;
+    $("#repBilled").innerHTML = (v.amount > 0 || billedOn(c.id, m) || invoiceOfMonth(c.id, m))
+      ? billedButton(c.id, m, v.amount) +
+        (canInvoiceMonth(c.id, m, v.amount)
+          ? `<div style="margin-top:8px"><button type="button" class="btn btn-teal btn-sm" data-action="invoice-from-crm" data-client="${esc(c.id)}" data-month="${m}">${icon("receipt")} Vystaviť faktúru</button></div>` : "")
+      : `<span class="tile-note">Nie je čo fakturovať</span>`;
     $("#repDoc").innerHTML = reportDocHtml(c, m, opt());
   };
   draw();
@@ -1517,7 +1724,16 @@ const ACTIONS = {
   "set-month": a => { ui.month = a.dataset.month; render(); },
 
   "lock": () => showLock(),
-  "sync-now": () => { if (ghReady()) syncFull(true); else go("nastavenia"); },
+  "sync-now": () => { if (ghReady()) syncFull(true); else { ui.settingsTab = "system"; go("nastavenia"); } },
+  "settings-tab": a => { ui.settingsTab = a.dataset.tab; render(true); },
+
+  /* skratka „nový …“ podľa toho, v ktorej časti appky si */
+  "quick-new": () => {
+    const m = ROUTE_MODULE[ui.route] || ui.module;
+    if (m === "faktury") ACTIONS["new-invoice"]();
+    else if (m === "ponuky") ACTIONS["new-quote"]();
+    else openLogModal(null);
+  },
 
   "gh-save": () => {
     const next = {
@@ -1626,7 +1842,7 @@ async function getRemote() {
 
 async function putRemote(sha) {
   const body = {
-    message: `Spotli CRM: aktualizácia dát (${todayStr()} ${nowTime()})`,
+    message: `Spotli App: aktualizácia dát (${todayStr()} ${nowTime()})`,
     content: b64encode(JSON.stringify(data, null, 2)),
     branch: settings.branch || "main"
   };
@@ -1771,18 +1987,21 @@ async function syncFull(manual) {
   }
 }
 
+/* stav synchronizácie sa ukazuje v bočnom paneli aj na rozcestníku */
 function updateSyncBadge(kind, text) {
-  const dot = $("#syncDot"), txt = $("#syncText");
-  if (!dot) return;
-  dot.className = "sync-dot";
-  if (kind) { dot.classList.add(kind); txt.textContent = text; return; }
-  if (!ghReady()) { txt.textContent = "Len v tomto prehliadači"; return; }
-  if (meta.lastError) { dot.classList.add("err"); txt.textContent = "Neuložené na GitHub"; $("#syncStatus").title = meta.lastError; return; }
-  if (meta.dirty) { dot.classList.add("busy"); txt.textContent = "Čaká na uloženie…"; return; }
-  dot.classList.add("ok");
-  const t = meta.lastSync ? new Date(meta.lastSync) : null;
-  txt.textContent = t ? `Uložené na GitHube · ${pad(t.getHours())}:${pad(t.getMinutes())}` : "Uložené na GitHube";
-  $("#syncStatus").title = "Synchronizovať teraz";
+  let cls = "", label = "", title = "Synchronizovať teraz";
+  if (kind) { cls = kind; label = text; }
+  else if (!ghReady()) { label = "Len v tomto prehliadači"; }
+  else if (meta.lastError) { cls = "err"; label = "Neuložené na GitHub"; title = meta.lastError; }
+  else if (meta.dirty) { cls = "busy"; label = "Čaká na uloženie…"; }
+  else {
+    cls = "ok";
+    const t = meta.lastSync ? new Date(meta.lastSync) : null;
+    label = t ? `Uložené na GitHube · ${pad(t.getHours())}:${pad(t.getMinutes())}` : "Uložené na GitHube";
+  }
+  $$(".js-sync-dot").forEach(d => { d.className = "sync-dot js-sync-dot" + (cls ? " " + cls : ""); });
+  $$(".js-sync-text").forEach(t => { t.textContent = label; });
+  $$(".js-sync-btn").forEach(b => { b.title = title; });
 }
 
 /* ===================== PIN ZÁMOK ===================== */
@@ -1841,6 +2060,9 @@ function pinKey(k) {
   if (sha256Hex(PIN_SALT + pinBuf) === info.h) {
     pinFails = 0;
     ssSet(KEYS.unlocked, "1");
+    // po zadaní PIN-u sa vždy otvorí rozcestník
+    history.replaceState(null, "", "#/start");
+    Object.assign(ui, parseHash());
     unlock();
   } else {
     wrongPin();
@@ -1877,14 +2099,16 @@ function bindGlobalEvents() {
       return;
     }
     const row = e.target.closest("[data-href]");
-    if (row && !e.target.closest("a")) location.hash = row.dataset.href;
+    if (row && !e.target.closest("a, button, input, select, label, textarea")) location.hash = row.dataset.href;
   });
 
   document.addEventListener("change", e => {
     const el = e.target;
     if (el.matches && el.matches('[data-change="log-client"]')) { ui.logClient = el.value; render(); }
     if (el.id === "importInput" && el.files && el.files[0]) { importFile(el.files[0]); el.value = ""; }
+    if (typeof onDocsChange === "function") onDocsChange(e);
   });
+  document.addEventListener("input", e => { if (typeof onDocsInput === "function") onDocsInput(e); });
 
   document.addEventListener("keydown", e => {
     if (locked) {
@@ -1900,7 +2124,7 @@ function bindGlobalEvents() {
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
     if (!typing && $("#modalRoot").hidden && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "n" || e.key === "N")) {
       e.preventDefault();
-      openLogModal(null);
+      ACTIONS["quick-new"]();
     }
   });
 
@@ -1937,9 +2161,10 @@ function bindGlobalEvents() {
 
   // ochrana pred zatvorením s neodoslanými zmenami
   window.addEventListener("beforeunload", e => {
-    if (ghReady() && meta.dirty && !locked) { e.preventDefault(); e.returnValue = ""; }
+    if (!locked && ((ghReady() && meta.dirty) || (ui.editing && ui.editing.dirty))) { e.preventDefault(); e.returnValue = ""; }
   });
   window.addEventListener("online", () => { if (meta.dirty) pushNow(); });
+  window.addEventListener("resize", () => { if (typeof fitPaper === "function") fitPaper(); });
 
   // automatické zamknutie po nečinnosti
   ["mousemove", "keydown", "click", "scroll"].forEach(ev =>
